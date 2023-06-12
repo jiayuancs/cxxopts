@@ -43,8 +43,10 @@ endif()
 
 # Establish the project options
 option(CXXOPTS_BUILD_EXAMPLES "Set to ON to build examples" ${CXXOPTS_STANDALONE_PROJECT})
-option(CXXOPTS_BUILD_TESTS "Set to ON to build tests" ${CXXOPTS_STANDALONE_PROJECT})
-option(CXXOPTS_ENABLE_INSTALL "Generate the install target" ${CXXOPTS_STANDALONE_PROJECT})
+# option(CXXOPTS_BUILD_TESTS "Set to ON to build tests" ${CXXOPTS_STANDALONE_PROJECT})
+option(CXXOPTS_BUILD_TESTS "Set to ON to build tests" OFF)
+# option(CXXOPTS_ENABLE_INSTALL "Generate the install target" ${CXXOPTS_STANDALONE_PROJECT})
+option(CXXOPTS_ENABLE_INSTALL "Generate the install target" OFF)
 option(CXXOPTS_ENABLE_WARNINGS "Add warnings to CMAKE_CXX_FLAGS" ${CXXOPTS_STANDALONE_PROJECT})
 option(CXXOPTS_USE_UNICODE_HELP "Use ICU Unicode library" OFF)
 
