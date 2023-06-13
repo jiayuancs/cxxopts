@@ -77,6 +77,9 @@ THE SOFTWARE.
 #endif
 
 #if __cplusplus >= 201603L
+// C++17引入了[[nodiscard]]属性
+// 当用于描述函数的返回值时，如果调用函数的地方没有获取返回值时，编译器会给予警告
+// 当用于描述类或枚举类时，如果函数的返回值是该类或枚举类的对象时（引用或指针不可以），如果该返回值没有被获取，编译器给予警告。
 #define CXXOPTS_NODISCARD [[nodiscard]]
 #else
 #define CXXOPTS_NODISCARD
@@ -282,6 +285,9 @@ CXXOPTS_IGNORE_WARNING("-Wnon-virtual-dtor")
 
 // some older versions of GCC warn under this warning
 CXXOPTS_IGNORE_WARNING("-Weffc++")
+// Value是一个抽象基类（含有纯虚函数）。
+// Value的部分成员函数需要返回指向当前对象的shared_ptr，因此需要继承enable_shared_from_this<Value>，
+// 以使得返回的所有shared_ptr共享同一个控制块。
 class Value : public std::enable_shared_from_this<Value> {
  public:
   virtual ~Value() = default;
@@ -407,8 +413,15 @@ class incorrect_argument_type : public parsing {
 
 }  // namespace exceptions
 
+// 用于抛出异常或者模拟异常。
+// 如果允许抛出异常（未定义宏CXXOPTS_NO_EXCEPTIONS），则直接抛出;
+// 反之使用std::cerr输出错误信息并调用std::exit(1)退出程序。
 template <typename T>
 void throw_or_mimic(const std::string& text) {
+  // C++11引入了静态断言(static_assert)，用于在编译期间检查某些条件是否成立。
+  // std::is_base_of用于判断两个类型的继承关系：
+  // std::is_base_of<A, B>::value; // get true if B is derived from A.
+  // 此处要求类型T必须是std::exception或者其派生类。
   static_assert(std::is_base_of<std::exception, T>::value,
                 "throw_or_mimic only works on std::exception and "
                 "deriving classes");
@@ -431,16 +444,18 @@ namespace values {
 
 namespace parser_tool {
 
+// 描述命令行输入的一个整数
 struct IntegerDesc {
-  std::string negative = "";
-  std::string base = "";
-  std::string value = "";
+  std::string negative = "";  // 正负
+  std::string base = "";      // 进制
+  std::string value = "";     // 值
 };
+// 描述命令行输入的一个选项，比如：--name
 struct ArguDesc {
-  std::string arg_name = "";
-  bool grouping = false;
-  bool set_value = false;
-  std::string value = "";
+  std::string arg_name = "";  // 参数的名字，比如name
+  bool grouping = false;      // 是否是短选项，比如-n
+  bool set_value = false;     // 是否有等号赋值，比如--name=jiayuancs
+  std::string value = "";  // 如果有等号，则是等号后面的值，比如jiayuancs
 };
 
 #ifdef CXXOPTS_NO_REGEX
@@ -586,6 +601,11 @@ const char* const truthy_pattern = "(t|T)(rue)?|1";
 CXXOPTS_LINKONCE
 const char* const falsy_pattern = "(f|F)(alse)?|0";
 CXXOPTS_LINKONCE
+// [:alnum:]表示所有的字母和数字,
+// "|"表示或者，因此option_pattern这段正则表达式分为两个可选部分： (1).
+// --([[:alnum:]][-_[:alnum:]\\.]+)(=(.*))? (2). -([[:alnum:]].*)
+// 其中(1)用于匹配--开头的参数，例如--help或--list=1,2,3
+// 其中(2)用于匹配-开头的参数，例如-l，短选项不能使用=进行赋值
 const char* const option_pattern =
     "--([[:alnum:]][-_[:alnum:]\\.]+)(=(.*))?|-([[:alnum:]].*)";
 CXXOPTS_LINKONCE
@@ -596,7 +616,10 @@ const char* const option_specifier_separator_pattern = ", *";
 
 }  // namespace
 
+// 输入一个整数字符串，返回一个整数描述符
 inline IntegerDesc SplitInteger(const std::string& text) {
+  // 常用的regex其实就是basic_regex<char>的别名
+  // typedef basic_regex<char> regex;
   static const std::basic_regex<char> integer_matcher(integer_pattern);
 
   std::smatch match;
@@ -637,6 +660,8 @@ inline bool IsFalseText(const std::string& text) {
 // Gets the option names specified via a single, comma-separated string,
 // and returns the separate, space-discarded, non-empty names
 // (without considering which or how many are single-character)
+// 用于分割逗号分割的选项名称。
+// 例如：输入"h, help"，将返回{"h", "help"}
 inline OptionNames split_option_names(const std::string& text) {
   static const std::basic_regex<char> option_specifier_matcher(
       option_specifier_pattern);
@@ -646,9 +671,16 @@ inline OptionNames split_option_names(const std::string& text) {
 
   OptionNames split_names;
 
+  // 编译分隔符", *"的正则表达式
   static const std::basic_regex<char> option_specifier_separator_matcher(
       option_specifier_separator_pattern);
   constexpr int use_non_matches{-1};
+
+  // sregex_token_iterator用于在一个字符串中查找匹配某个正则表达式的子串
+  // 其构造函数第4个参数取值含义如下：
+  // -1: 表示对分隔符之间的子序列感兴趣（即未匹配的部分）
+  // 0: 表示对每一个分隔符感兴趣（即匹配的部分）
+  // 其他值表示对正则表达式中第n个匹配次表达式感兴趣。
   auto token_iterator = std::sregex_token_iterator(
       text.begin(), text.end(), option_specifier_separator_matcher,
       use_non_matches);
@@ -657,6 +689,9 @@ inline OptionNames split_option_names(const std::string& text) {
   return split_names;
 }
 
+// 输入：arg是参数选项，比如--list=12或--list或-l等
+// 函数检查arg是否合法，如果合法，则置matched=true，否则置matched=false
+// 函数返回解析得到的参数描述符ArguDesc
 inline ArguDesc ParseArgument(const char* arg, bool& matched) {
   static const std::basic_regex<char> option_matcher(option_pattern);
   std::match_results<const char*> result;
@@ -666,9 +701,10 @@ inline ArguDesc ParseArgument(const char* arg, bool& matched) {
   ArguDesc argu_desc;
   if (matched) {
     argu_desc.arg_name = result[1].str();
-    argu_desc.set_value = result[2].length() > 0;
-    argu_desc.value = result[3].str();
-    if (result[4].length() > 0) {
+    argu_desc.set_value =
+        result[2].length() > 0;  // 即是否有等号赋值，例如--list=1
+    argu_desc.value = result[3].str();  // result[3]即(.*)，是等号后面的值
+    if (result[4].length() > 0) {  // 如果是短选项，例如-l，则result[4]即l
       argu_desc.grouping = true;
       argu_desc.arg_name = result[4].str();
     }
@@ -683,18 +719,27 @@ inline ArguDesc ParseArgument(const char* arg, bool& matched) {
 
 namespace detail {
 
+// 未经特例化的类模板（主模板）
+// 由于下面对这个类模板进行两次部分特例化，且两次特例化的并集是全集
+// 因此，这个主模板是不会被实例化的，所以没有定义其成员
 template <typename T, bool B>
 struct SignedCheck;
 
+// 类模板部分特例化
+// 如果目标类型T是有符号的，则需要检查是否溢出
+// 因为负数比正数多一个
+// 即有符号类型无法表示最小负数的绝对值（溢出）
 template <typename T>
 struct SignedCheck<T, true> {
+  // U是T的无符号类型
   template <typename U>
   void operator()(bool negative, U u, const std::string& text) {
-    if (negative) {
+    if (negative) {  // 负数的绝对值(u)不应大于最小负数的绝对值
+      // std::numeric_limits<T>::min()返回类型T的最小值
       if (u > static_cast<U>((std::numeric_limits<T>::min)())) {
         throw_or_mimic<exceptions::incorrect_argument_type>(text);
       }
-    } else {
+    } else {  // 正数不应大于能够表示的最大值
       if (u > static_cast<U>((std::numeric_limits<T>::max)())) {
         throw_or_mimic<exceptions::incorrect_argument_type>(text);
       }
@@ -702,14 +747,21 @@ struct SignedCheck<T, true> {
   }
 };
 
+// 类模板部分特例化
+// 如果目标类型T是无符号的，则不需要检查是否溢出，因此函数内部什么也不做
 template <typename T>
 struct SignedCheck<T, false> {
   template <typename U>
   void operator()(bool, U, const std::string&) const {}
 };
 
+// T是目标类型（要解析的类型），U是T的无符号类型
+// 输入：text是输入的数字字符串，negative表示text中的数是否是负数，value表示按无符号类型从text解析出的数值
+// 比如text="-234234", 则negative=true, value=234234
+// 该函数用于判断类型T是否能容纳下数字text，如果不能，则抛出异常
 template <typename T, typename U>
 void check_signed_range(bool negative, U value, const std::string& text) {
+  // std::numeric_limits<T>::is_signed返回类型T是否是有符号类型（true/false)
   SignedCheck<T, std::numeric_limits<T>::is_signed>()(negative, value, text);
 }
 
@@ -1048,6 +1100,7 @@ class OptionDetails {
   std::size_t m_hash{};
 };
 
+// 一条命令行选项
 struct HelpOptionDetails {
   std::string s;
   OptionNames l;
@@ -1061,6 +1114,7 @@ struct HelpOptionDetails {
   bool is_boolean;
 };
 
+// 一组命令行选项
 struct HelpGroupDetails {
   std::string name{};
   std::string description{};
@@ -1454,8 +1508,9 @@ class Options {
 
   void generate_all_groups_help(String& result) const;
 
-  std::string m_program{};
-  String m_help_string{};
+  // 这里使用了C++11的特性：类内初始值(in-class initializer)
+  std::string m_program{};  // 程序名
+  String m_help_string{};   // 帮助信息
   std::string m_custom_help{};
   std::string m_positional_help{};
   bool m_show_positional;
@@ -1471,6 +1526,7 @@ class Options {
   std::map<std::string, HelpGroupDetails> m_help{};
 };
 
+// 函数类对象(仿函数)
 class OptionAdder {
  public:
   OptionAdder(Options& options, std::string group)
@@ -1643,6 +1699,7 @@ inline OptionAdder& OptionAdder::operator()(
   // Note: All names will be non-empty; but we must separate the short
   // (length-1) and longer names
   std::string short_name{""};
+  // std::partition用于对区间内的元素进行划分，划分为满足条件的在前，不满足条件的在后
   auto first_short_name_iter = std::partition(
       option_names.begin(), option_names.end(),
       [&](const std::string& name) { return name.length() > 1; });
@@ -1751,7 +1808,8 @@ inline void Options::parse_positional(
     std::initializer_list<std::string> options) {
   parse_positional(std::vector<std::string>(options));
 }
-
+// const char* const* argc从右向左读，*读作pointer to
+// 于是 argc is a pointer to cosnt pointer to const char
 inline ParseResult Options::parse(int argc, const char* const* argv) {
   OptionParser parser(*m_options, m_positional, m_allow_unrecognised);
 

@@ -27,6 +27,8 @@ set("PROJECT_HOMEPAGE_URL" "https://github.com/jarro2783/cxxopts")
 # Get the version of the library
 cxxopts_getversion(VERSION)
 
+set(CMAKE_BUILD_TYPE Debug)
+
 project(cxxopts
     VERSION "${VERSION}"
     LANGUAGES CXX

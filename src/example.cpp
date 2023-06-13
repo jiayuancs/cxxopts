@@ -27,10 +27,12 @@ THE SOFTWARE.
 #include "cxxopts.hpp"
 
 int parse(int argc, const char* argv[]) {
+  std::cout << static_cast<unsigned int>((std::numeric_limits<int>::min)()) << std::endl;
   try {
-    std::unique_ptr<cxxopts::Options> allocated(
-        new cxxopts::Options(argv[0], " - example command line options"));
-    auto& options = *allocated;
+    // std::unique_ptr<cxxopts::Options> allocated(
+    //     new cxxopts::Options(argv[0], " - example command line options"));
+    // auto& options = *allocated;
+    cxxopts::Options options(argv[0], " - example command line options");
     options.positional_help("[optional args]").show_positional_help();
 
     bool apple = false;
@@ -71,7 +73,8 @@ int parse(int argc, const char* argv[]) {
     options.add_options("Group")("c,compile", "compile")(
         "d,drop", "drop", cxxopts::value<std::vector<std::string>>());
 
-    options.parse_positional({"input", "output", "positional"});
+    // 按照这里声明的顺序传递参数
+    options.parse_positional({"input", "o", "positional"});
 
     auto result = options.parse(argc, argv);
 
@@ -107,9 +110,9 @@ int parse(int argc, const char* argv[]) {
 
     if (result.count("f")) {
       auto& ff = result["f"].as<std::vector<std::string>>();
-      std::cout << "Files" << std::endl;
+      std::cout << "Files: ";
       for (const auto& f : ff) {
-        std::cout << f << std::endl;
+        std::cout << f << ", ";
       }
     }
 
