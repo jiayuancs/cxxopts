@@ -595,6 +595,7 @@ inline ArguDesc ParseArgument(const char* arg, bool& matched) {
 
 namespace {
 CXXOPTS_LINKONCE
+// 只支持10进制和16进制的整数
 const char* const integer_pattern = "(-)?(0x)?([0-9a-zA-Z]+)|((0x)?0)";
 CXXOPTS_LINKONCE
 const char* const truthy_pattern = "(t|T)(rue)?|1";
@@ -767,19 +768,26 @@ void check_signed_range(bool negative, U value, const std::string& text) {
 
 }  // namespace detail
 
+// R是目标类型，r是要存储的目标类型变量
+// T目标类型的无符号版本，t是已经解析出的数字
+// 当R是有符号类型时，会执行该函数，将-t转换为R类型，然后存储到r中
 template <typename R, typename T>
 void checked_negate(R& r, T&& t, const std::string&, std::true_type) {
   // if we got to here, then `t` is a positive number that fits into
   // `R`. So to avoid MSVC C4146, we first cast it to `R`.
   // See https://github.com/jarro2783/cxxopts/issues/62 for more details.
+  // 由于t可能是最小负数的绝对值，为避免溢出，这里先将其减一，然后转为R类型
   r = static_cast<R>(-static_cast<R>(t - 1) - 1);
 }
 
+// 当R是无符号类型时，会执行该函数，直接抛出异常
 template <typename R, typename T>
 void checked_negate(R&, T&&, const std::string& text, std::false_type) {
   throw_or_mimic<exceptions::incorrect_argument_type>(text);
 }
 
+// 解析text中的整数，存储到value中
+// 其实这里也可以使用stringstream进行解析，只需要判断一下是否是16进制整数即可
 template <typename T>
 void integer_parser(const std::string& text, T& value) {
   parser_tool::IntegerDesc int_desc = parser_tool::SplitInteger(text);
@@ -788,7 +796,8 @@ void integer_parser(const std::string& text, T& value) {
   constexpr bool is_signed = std::numeric_limits<T>::is_signed;
 
   const bool negative = int_desc.negative.length() > 0;
-  const uint8_t base = int_desc.base.length() > 0 ? 16 : 10;
+  const uint8_t base =
+      int_desc.base.length() > 0 ? 16 : 10;  // 只支持10进制或16进制
   const std::string& value_match = int_desc.value;
 
   US result = 0;
@@ -814,9 +823,13 @@ void integer_parser(const std::string& text, T& value) {
     result = next;
   }
 
+  // 检查类型T是否能容纳下数字text
   detail::check_signed_range<T>(negative, result, text);
 
   if (negative) {
+    // integral_constant用于将类型和值编码为类型，可以很方便的定义编译期常量。
+    // checked_negate将-result转换为T类型，然后写入到value中
+    // 如果T类型是无符号的，则抛出异常。
     checked_negate<T>(value, result, text,
                       std::integral_constant<bool, is_signed>());
   } else {
@@ -824,6 +837,9 @@ void integer_parser(const std::string& text, T& value) {
   }
 }
 
+// 使用stringstream解析text中的其他类型数据（比如浮点数）
+// 其实也可以使用stringstream解析整数，是因为stringstream默认以十进制的方式解析整数
+// 所以解析十六进制时，需要: in >> std::hex >> value;
 template <typename T>
 void stringstream_parser(const std::string& text, T& value) {
   std::stringstream in(text);
@@ -833,12 +849,17 @@ void stringstream_parser(const std::string& text, T& value) {
   }
 }
 
+// enable_if<C>的作用就是，如果这个C值为false，那么type就会被推断成一个void或者是别的什么类型，
+// 如果C值为false，那么enable_if<C,
+// T>::type就不存在了，于是这个函数原型就不会被产生出来。
+// 因此只有当类型T是整数类型时，才会调用该函数
 template <typename T,
           typename std::enable_if<std::is_integral<T>::value>::type* = nullptr>
 void parse_value(const std::string& text, T& value) {
   integer_parser(text, value);
 }
 
+// 解析text中的bool值，存储到value中
 inline void parse_value(const std::string& text, bool& value) {
   if (parser_tool::IsTrueText(text)) {
     value = true;
@@ -853,6 +874,7 @@ inline void parse_value(const std::string& text, bool& value) {
   throw_or_mimic<exceptions::incorrect_argument_type>(text);
 }
 
+// 解析字符串，存储到value中
 inline void parse_value(const std::string& text, std::string& value) {
   value = text;
 }
@@ -860,15 +882,18 @@ inline void parse_value(const std::string& text, std::string& value) {
 // The fallback parser. It uses the stringstream parser to parse all types
 // that have not been overloaded explicitly.  It has to be placed in the
 // source code before all other more specialized templates.
+// 只有当类型T不是整数类型时，才会调用该函数
 template <typename T,
           typename std::enable_if<!std::is_integral<T>::value>::type* = nullptr>
 void parse_value(const std::string& text, T& value) {
   stringstream_parser(text, value);
 }
 
+// 解析列表，存储到value中
 template <typename T>
 void parse_value(const std::string& text, std::vector<T>& value) {
-  if (text.empty()) {
+  if (text.empty()) {  // 空列表
+    // 实际上永远不会执行到这里，因为对于列表类型的参数，如果不指定值，则会抛出异常
     T v;
     parse_value(text, v);
     value.emplace_back(std::move(v));
@@ -883,6 +908,7 @@ void parse_value(const std::string& text, std::vector<T>& value) {
   }
 }
 
+// TODO: optional是干啥的？
 #ifdef CXXOPTS_HAS_OPTIONAL
 template <typename T>
 void parse_value(const std::string& text, std::optional<T>& value) {
@@ -892,6 +918,8 @@ void parse_value(const std::string& text, std::optional<T>& value) {
 }
 #endif
 
+// 解析单个字符，存储到c中
+// 如果输入超过1个字符，则报错
 inline void parse_value(const std::string& text, char& c) {
   if (text.length() != 1) {
     throw_or_mimic<exceptions::incorrect_argument_type>(text);
@@ -900,11 +928,13 @@ inline void parse_value(const std::string& text, char& c) {
   c = text[0];
 }
 
+// 主模板，默认情况下，value=false
 template <typename T>
 struct type_is_container {
   static constexpr bool value = false;
 };
 
+// 对上述模板的部分特例化，当T是vector时，会匹配到该模板
 template <typename T>
 struct type_is_container<std::vector<T>> {
   static constexpr bool value = true;
@@ -981,12 +1011,14 @@ class abstract_value : public Value {
 
  protected:
   std::shared_ptr<T> m_result{};
-  T* m_store{};
+  T* m_store{};  // 绑定到的变量地址
 
-  bool m_default = false;
-  bool m_implicit = false;
+  bool m_default = false;   // 是否有默认值
+  bool m_implicit = false;  // 是否有隐式值
 
+  // 默认值：选项没有在命令行中给出时所采用的值
   std::string m_default_value{};
+  // 隐式值：命令行中给出了选项，但是没有给出具体的值时所采用的值
   std::string m_implicit_value{};
 };
 
@@ -995,12 +1027,14 @@ class standard_value : public abstract_value<T> {
  public:
   using abstract_value<T>::abstract_value;
 
+  // override用于显式地注明该函数覆盖了它继承的虚函数
   CXXOPTS_NODISCARD
   std::shared_ptr<Value> clone() const override {
     return std::make_shared<standard_value<T>>(*this);
   }
 };
 
+// 特例化版本，当T是bool时，会匹配到该模板
 template <>
 class standard_value<bool> : public abstract_value<bool> {
  public:
@@ -1008,6 +1042,7 @@ class standard_value<bool> : public abstract_value<bool> {
 
   standard_value() { set_default_and_implicit(); }
 
+  // bool选项的implicit值是"true"
   explicit standard_value(bool* b) : abstract_value(b) {
     m_implicit = true;
     m_implicit_value = "true";
@@ -1046,6 +1081,7 @@ inline const std::string& first_or_empty(const OptionNames& long_names) {
   return long_names.empty() ? empty : long_names.front();
 }
 
+// 一条命令选项的详细信息
 class OptionDetails {
  public:
   OptionDetails(std::string short_, OptionNames long_, String desc,
@@ -1091,12 +1127,13 @@ class OptionDetails {
   std::size_t hash() const { return m_hash; }
 
  private:
-  std::string m_short{};
-  OptionNames m_long{};
-  String m_desc{};
+  std::string m_short{};  // short name
+  OptionNames m_long{};   // long name
+  String m_desc{};        // description
   std::shared_ptr<const Value> m_value{};
-  int m_count;
+  int m_count;  // 记录该选项在命令行中出现的次数
 
+  // 该选项的哈希值，根据第一个long name + short name得到
   std::size_t m_hash{};
 };
 
@@ -1183,6 +1220,7 @@ class OptionValue {
   bool m_default = false;
 };
 
+// 键值对
 class KeyValue {
  public:
   KeyValue(std::string key_, std::string value_) noexcept
@@ -1194,6 +1232,7 @@ class KeyValue {
   CXXOPTS_NODISCARD
   const std::string& value() const { return m_value; }
 
+  // 将字符串类型的值解析为T类型
   template <typename T>
   T as() const {
     T result;
@@ -1410,6 +1449,7 @@ class OptionParser {
   NameHashMap m_keys{};
 };
 
+// 存储所有选项信息
 class Options {
  public:
   explicit Options(std::string program_name, std::string help_string = "")
@@ -1518,20 +1558,23 @@ class Options {
   std::size_t m_width;
   bool m_tab_expansion;
 
+  // std::unordered_map<std::string, std::shared_ptr<OptionDetails>>
+  // 一个选项可以有多个选项名，这些选项名都指向同一个选项信息
   std::shared_ptr<OptionMap> m_options;
   std::vector<std::string> m_positional{};
   std::unordered_set<std::string> m_positional_set{};
 
   // mapping from groups to help options
+  // m_help["group_name"]存储了group_name组的帮助信息
   std::map<std::string, HelpGroupDetails> m_help{};
 };
 
-// 函数类对象(仿函数)
 class OptionAdder {
  public:
   OptionAdder(Options& options, std::string group)
       : m_options(options), m_group(std::move(group)) {}
 
+  // 默认选项类型是bool
   OptionAdder& operator()(
       const std::string& opts, const std::string& desc,
       const std::shared_ptr<const Value>& value = ::cxxopts::value<bool>(),
@@ -1699,10 +1742,13 @@ inline OptionAdder& OptionAdder::operator()(
   // Note: All names will be non-empty; but we must separate the short
   // (length-1) and longer names
   std::string short_name{""};
+
   // std::partition用于对区间内的元素进行划分，划分为满足条件的在前，不满足条件的在后
   auto first_short_name_iter = std::partition(
       option_names.begin(), option_names.end(),
       [&](const std::string& name) { return name.length() > 1; });
+
+  // 计算长度为1的选项名(short name)的个数
   auto num_length_1_names = (option_names.end() - first_short_name_iter);
   switch (num_length_1_names) {
     case 1:
@@ -1714,6 +1760,7 @@ inline OptionAdder& OptionAdder::operator()(
       throw_or_mimic<exceptions::invalid_option_format>(opts);
   };
 
+  // 将分隔后的选项信息添加到options中
   m_options.add_option(m_group, short_name, option_names, desc, value,
                        std::move(arg_help));
 
@@ -1973,6 +2020,7 @@ inline void Options::add_option(const std::string& group,
   add_options(group, {option});
 }
 
+// s是short_name，l是long_names
 inline void Options::add_option(const std::string& group, const std::string& s,
                                 const OptionNames& l, std::string desc,
                                 const std::shared_ptr<const Value>& value,
@@ -1980,10 +2028,12 @@ inline void Options::add_option(const std::string& group, const std::string& s,
   auto stringDesc = toLocalString(std::move(desc));
   auto option = std::make_shared<OptionDetails>(s, l, stringDesc, value);
 
+  // 短选项
   if (!s.empty()) {
     add_one_option(s, option);
   }
 
+  // 长选项可能有多个，每一个都要加入到map中
   for (const auto& long_name : l) {
     add_one_option(long_name, option);
   }
@@ -1997,6 +2047,7 @@ inline void Options::add_option(const std::string& group, const std::string& s,
       value->is_container(), value->is_boolean()});
 }
 
+// 将一条选项信息加入到map中，键为选项的名称
 inline void Options::add_one_option(
     const std::string& option, const std::shared_ptr<OptionDetails>& details) {
   auto in = m_options->emplace(option, details);

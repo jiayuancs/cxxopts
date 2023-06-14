@@ -27,7 +27,6 @@ THE SOFTWARE.
 #include "cxxopts.hpp"
 
 int parse(int argc, const char* argv[]) {
-  std::cout << static_cast<unsigned int>((std::numeric_limits<int>::min)()) << std::endl;
   try {
     // std::unique_ptr<cxxopts::Options> allocated(
     //     new cxxopts::Options(argv[0], " - example command line options"));
@@ -43,7 +42,7 @@ int parse(int argc, const char* argv[]) {
       .allow_unrecognised_options()
       .add_options()
       ("a,applebana,ringo", "an apple", cxxopts::value<bool>(apple))
-      ("b,bob", "Bob")
+      ("b,bob,alice", "Bob")
       ("char", "A character", cxxopts::value<char>())
       ("t,true", "True", cxxopts::value<bool>()->default_value("true"))
       ("f, file", "File", cxxopts::value<std::vector<std::string>>(), "FILE")

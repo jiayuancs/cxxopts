@@ -19,7 +19,7 @@
 # THE SOFTWARE.
 
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin)
-add_executable(example example.cpp)
+add_executable(example test.cpp)
 target_link_libraries(example cxxopts)
 
 set_property(TARGET example PROPERTY CXX_STANDARD 17)
